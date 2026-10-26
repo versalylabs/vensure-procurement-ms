@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+:root,
+html,
+body {
+  --background: #171721;
+  --foreground: #ededf3;
+  color-scheme: dark;
+}
+
+/* Mercury Alpine Dark Tokens */
+:root {
+  --color-onyx-canvas: #171721;
+  --color-graphite-card: #1e1e2a;
+  --color-obsidian-button: #272735;
+  --color-slate-border: #70707d;
+  --color-mist-border: #e2e3ed;
+  --color-ash-text: #c3c3cc;
+  --color-ivory-text: #ededf3;
+  --color-cobalt: #5266eb;
+  --color-cobalt-hover: #4355d8;
+  --color-pure-white: #ffffff;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  min-height: 100vh;
+}
+
+/* Custom Scrollbar for sleek Mercury Dark aesthetics */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #171721;
+}
+::-webkit-scrollbar-thumb {
+  background: #272735;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #39394d;
+}
+
+/* Mercury Design System Helpers */
+.mercury-canvas {
+  background-color: #171721;
+  color: #ededf3;
+}
+
+.mercury-card {
+  background-color: #1e1e2a;
+  border-radius: 12px;
+  padding: 32px;
+}
+
+.mercury-pill-primary {
+  background-color: #5266eb;
+  color: #ffffff;
+  border-radius: 32px;
+  font-weight: 400;
+  transition: all 0.2s ease;
+}
+.mercury-pill-primary:hover {
+  background-color: #4355d8;
+}
+
+.mercury-pill-ghost {
+  background-color: transparent;
+  color: #ededf3;
+  border: 1px solid rgba(237, 237, 243, 0.25);
+  border-radius: 40px;
+  font-weight: 400;
+  transition: all 0.2s ease;
+}
+.mercury-pill-ghost:hover {
+  border-color: #ededf3;
+  background-color: rgba(237, 237, 243, 0.05);
+}
+
+.mercury-pill-obsidian {
+  background-color: #272735;
+  color: #ededf3;
+  border-radius: 32px;
+  transition: all 0.2s ease;
+}
+.mercury-pill-obsidian:hover {
+  background-color: #313142;
+}
+
+/* Unified Mercury Theme Overrides for Procurement System */
+/* Maps legacy light & slate utility classes directly to Mercury Alpine tokens */
+main .bg-white,
+div:not([class*="mercury-pill-primary"]):not([class*="bg-emerald"]):not([class*="bg-blue"]):not([class*="bg-amber"]):not([class*="bg-rose"]):not([class*="bg-red"]) > .bg-white {
+  background-color: #1e1e2a !important;
+  color: #ededf3 !important;
+  border-color: rgba(226, 227, 237, 0.08) !important;
+}
+
+.bg-slate-50,
+.bg-slate-50\/50,
+.bg-slate-50\/60,
+.bg-slate-50\/70,
+.bg-slate-50\/80,
+.bg-slate-100,
+main .bg-slate-50,
+main .bg-slate-100 {
+  background-color: #272735 !important;
+  color: #c3c3cc !important;
+  border-color: rgba(226, 227, 237, 0.08) !important;
+}
+
+main .bg-slate-900,
+main .bg-slate-950 {
+  background-color: #1e1e2a !important;
+  color: #ededf3 !important;
+  border-color: rgba(226, 227, 237, 0.08) !important;
+}
+
+main .bg-slate-800,
+main .bg-slate-800\/40,
+main .bg-slate-800\/60,
+main .bg-slate-800\/70,
+main .bg-slate-800\/90 {
+  background-color: #272735 !important;
+  color: #ededf3 !important;
+  border-color: rgba(226, 227, 237, 0.08) !important;
+}
+
+.text-slate-900,
+.text-slate-800,
+main .text-slate-900,
+main .text-slate-800 {
+  color: #ededf3 !important;
+}
+
+.text-slate-700,
+.text-slate-600,
+.text-slate-500,
+main .text-slate-700,
+main .text-slate-600,
+main .text-slate-500 {
+  color: #c3c3cc !important;
+}
+
+.border-slate-100,
+.border-slate-200,
+.border-slate-300,
+.border-slate-700,
+.border-slate-800,
+main .border-slate-100,
+main .border-slate-200,
+main .border-slate-300,
+main .border-slate-700,
+main .border-slate-800 {
+  border-color: rgba(226, 227, 237, 0.08) !important;
+}
+
+/* Interactive form inputs in internal workspaces */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  background-color: #272735 !important;
+  color: #ededf3 !important;
+  border-color: rgba(226, 227, 237, 0.12) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #5266eb !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1px #5266eb !important;
+}
+
+option {
+  background-color: #1e1e2a !important;
+  color: #ededf3 !important;
+}

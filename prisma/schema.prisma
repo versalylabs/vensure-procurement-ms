@@ -1,0 +1,921 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS (RBAC, Procurement Methods & Core Lifecycle States)
+// -----------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  DEPARTMENT_HEAD
+  PROCUREMENT_OFFICER
+  FINANCE
+  APPROVER
+  VIEWER
+  SUPPLIER
+}
+
+enum ProcurementMethod {
+  DIRECT_PURCHASE
+  RFQ
+  COMPETITIVE_QUOTATION
+  TENDER
+  FRAMEWORK_AGREEMENT
+  EMERGENCY_PROCUREMENT
+  SINGLE_SOURCE
+}
+
+enum ApprovalTargetDocument {
+  PROCUREMENT_PLAN
+  PURCHASE_REQUISITION
+  PURCHASE_ORDER
+  INVOICE
+  CONTRACT
+}
+
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  DELEGATED
+}
+
+enum PlanStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+enum RequisitionStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum SupplierApprovalStatus {
+  PENDING_VERIFICATION
+  APPROVED
+  REJECTED
+}
+
+enum RfqStatus {
+  DRAFT
+  ISSUED
+  CLOSED
+  EVALUATED
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  TERMINATED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  ISSUED
+  ACKNOWLEDGED
+  PARTIALLY_DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum GrnStatus {
+  PENDING
+  PARTIALLY_RECEIVED
+  FULLY_RECEIVED
+}
+
+enum PurchaseReturnStatus {
+  RAISED
+  APPROVED
+  DISPATCHED_TO_SUPPLIER
+  SUPPLIER_ACKNOWLEDGED
+  RESOLVED
+}
+
+enum ReturnResolutionType {
+  REPLACEMENT_DELIVERY
+  CREDIT_NOTE_ADJUSTMENT
+}
+
+enum ThreeWayMatchStatus {
+  MATCHED
+  QUANTITY_MISMATCH
+  PRICE_MISMATCH
+  BOTH_MISMATCH
+}
+
+enum InvoiceStatus {
+  PENDING_MATCH
+  EXCEPTION_FLAGGED
+  APPROVED_FOR_PAYMENT
+  SCHEDULED
+  PARTIALLY_PAID
+  PAID
+  REJECTED
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 2 & 20: ORGANIZATION, MULTI-TENANCY & WHITE-LABEL BRANDING
+// -----------------------------------------------------------------------------
+
+model Organization {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  taxId          String?
+  logoUrl        String?
+  primaryColor   String   @default("#10b981")
+  documentHeader String?
+  documentFooter String?
+  baseCurrency   String   @default("KES")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  branches          Branch[]
+  departments       Department[]
+  costCenters       CostCenter[]
+  users             User[]
+  currencies        CurrencyConfig[]
+  taxRates          TaxRate[]
+  catalogItems      CatalogItem[]
+  approvalWorkflows ApprovalWorkflow[]
+  methodConfigs     ProcurementMethodConfig[]
+  budgets           DepartmentBudget[]
+  procurementPlans  ProcurementPlan[]
+  requisitions      PurchaseRequisition[]
+  suppliers         Supplier[]
+  rfqs              Rfq[]
+  contracts         SupplierContract[]
+  purchaseOrders    PurchaseOrder[]
+  goodsReceipts     GoodsReceiptNote[]
+  purchaseReturns   PurchaseReturn[]
+  supplierInvoices  SupplierInvoice[]
+  documentTemplates      DocumentTemplate[]
+  procurementAlerts      ProcurementAlert[]
+  enterpriseIntegrations EnterpriseIntegration[]
+  integrationSyncLogs    IntegrationSyncLog[]
+  auditLogs              AuditLog[]
+}
+
+model Branch {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  address        String?
+  isHeadquarters Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model Department {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  headUserId     String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization     Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  costCenters      CostCenter[]
+  users            User[]
+  budgets          DepartmentBudget[]
+  procurementPlans ProcurementPlan[]
+  requisitions     PurchaseRequisition[]
+  contracts        SupplierContract[]
+  purchaseOrders   PurchaseOrder[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model CostCenter {
+  id             String       @id @default(cuid())
+  organizationId String
+  departmentId   String
+  code           String
+  name           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department            @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  requisitions   PurchaseRequisition[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, departmentId])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 2 & 20: USERS, 7-ROLE RBAC & VACATION DELEGATION
+// -----------------------------------------------------------------------------
+
+model User {
+  id              String       @id @default(cuid())
+  organizationId  String
+  departmentId    String?
+  email           String       @unique
+  fullName        String
+  role            Role         @default(VIEWER)
+  isActive        Boolean      @default(true)
+  delegatedToId   String?
+  delegationStart DateTime?
+  delegationEnd   DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department      Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  requisitions    PurchaseRequisition[]
+  auditLogs       AuditLog[]
+
+  @@index([organizationId, role])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 20: CURRENCY, TAX & STANDARD PRODUCT CATALOG
+// -----------------------------------------------------------------------------
+
+model CurrencyConfig {
+  id             String       @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  symbol         String
+  exchangeRate   Decimal      @default(1.0) @db.Decimal(18, 6)
+  isBase         Boolean      @default(false)
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+}
+
+model TaxRate {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  code           String
+  percentage     Decimal      @db.Decimal(5, 2)
+  isActive       Boolean      @default(true)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+}
+
+model CatalogItem {
+  id                String            @id @default(cuid())
+  organizationId    String
+  sku               String
+  name              String
+  category          String
+  specification     String
+  unitOfMeasure     String
+  referenceUnitCost Decimal           @db.Decimal(18, 2)
+  currency          String            @default("KES")
+  defaultMethod     ProcurementMethod @default(RFQ)
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, category])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 4: CONFIGURABLE MULTI-LEVEL APPROVAL WORKFLOW ENGINE
+// -----------------------------------------------------------------------------
+
+model ApprovalWorkflow {
+  id             String                 @id @default(cuid())
+  organizationId String
+  name           String
+  targetDocument ApprovalTargetDocument
+  minAmount      Decimal                @default(0) @db.Decimal(18, 2)
+  maxAmount      Decimal?               @db.Decimal(18, 2)
+  currency       String                 @default("KES")
+  isActive       Boolean                @default(true)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  steps          ApprovalStep[]
+
+  @@index([organizationId, targetDocument])
+}
+
+model ApprovalStep {
+  id                 String           @id @default(cuid())
+  workflowId         String
+  stepOrder          Int
+  stepName           String
+  approverRole       Role
+  specificApproverId String?
+  minThresholdAmount Decimal          @default(0) @db.Decimal(18, 2)
+  slaHours           Int              @default(24)
+
+  workflow           ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, stepOrder])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 5: PROCUREMENT METHODS & CHECKLIST CONFIGURATION
+// -----------------------------------------------------------------------------
+
+model ProcurementMethodConfig {
+  id                    String            @id @default(cuid())
+  organizationId        String
+  method                ProcurementMethod
+  displayName           String
+  description           String
+  minQuotesRequired     Int               @default(1)
+  maxAmountCeiling      Decimal?          @db.Decimal(18, 2)
+  requiresJustification Boolean           @default(false)
+  requiredDocuments     Json
+  workflowSteps         Json
+  isActive              Boolean           @default(true)
+
+  organization          Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, method])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 9: BUDGET CONTROL & 4-LAYER COMMITMENT ENGINE
+// -----------------------------------------------------------------------------
+
+model DepartmentBudget {
+  id                String       @id @default(cuid())
+  organizationId    String
+  departmentId      String
+  fiscalPeriod      String
+  currency          String       @default("KES")
+  totalBudget       Decimal      @db.Decimal(18, 2)
+  encumberedAmount  Decimal      @default(0) @db.Decimal(18, 2)
+  committedAmount   Decimal      @default(0) @db.Decimal(18, 2)
+  actualSpend       Decimal      @default(0) @db.Decimal(18, 2)
+  warningThreshold  Int          @default(70)
+  criticalThreshold Int          @default(90)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department        Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, departmentId, fiscalPeriod])
+  @@index([organizationId])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 1: ANNUAL & PERIODIC PROCUREMENT PLANNING
+// -----------------------------------------------------------------------------
+
+model ProcurementPlan {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  departmentId       String
+  planCode           String
+  title              String
+  fiscalPeriod       String
+  category           String
+  description        String
+  estimatedBudget    Decimal           @db.Decimal(18, 2)
+  currency           String            @default("KES")
+  expectedQuarter    String
+  expectedDate       DateTime
+  plannedMethod      ProcurementMethod @default(RFQ)
+  status             PlanStatus        @default(PLANNED)
+  approvedBy         String?
+  approvedAt         DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department         Department            @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  linkedRequisitions PurchaseRequisition[]
+
+  @@unique([organizationId, planCode])
+  @@index([organizationId, departmentId, status])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 3: PURCHASE REQUISITION (PR) & LINE ITEMS
+// -----------------------------------------------------------------------------
+
+model PurchaseRequisition {
+  id                    String            @id @default(cuid())
+  organizationId        String
+  prNumber              String
+  title                 String
+  requesterId           String
+  departmentId          String
+  costCenterId          String
+  procurementPlanId     String?
+  selectedMethod        ProcurementMethod @default(RFQ)
+  methodDeviationReason String?
+  currency              String            @default("KES")
+  totalEstimatedCost    Decimal           @db.Decimal(18, 2)
+  requiredDate          DateTime
+  status                RequisitionStatus @default(DRAFT)
+  rejectionReason       String?
+  revisionNumber        Int               @default(1)
+  budgetEncumbered      Boolean           @default(false)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  organization          Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requester             User                      @relation(fields: [requesterId], references: [id], onDelete: Restrict)
+  department            Department                @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  costCenter            CostCenter                @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
+  procurementPlan       ProcurementPlan?          @relation(fields: [procurementPlanId], references: [id], onDelete: SetNull)
+  items                 PurchaseRequisitionItem[]
+  rfqs                  Rfq[]
+
+  @@unique([organizationId, prNumber])
+  @@index([organizationId, status])
+}
+
+model PurchaseRequisitionItem {
+  id             String              @id @default(cuid())
+  requisitionId  String
+  sku            String?
+  description    String
+  specification  String?
+  quantity       Decimal             @db.Decimal(18, 2)
+  unitOfMeasure  String              @default("EA")
+  estimatedUnit  Decimal             @db.Decimal(18, 2)
+  totalEstimated Decimal             @db.Decimal(18, 2)
+
+  requisition    PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 7: SUPPLIER MANAGEMENT & DOCUMENT VAULT
+// -----------------------------------------------------------------------------
+
+model Supplier {
+  id                   String                 @id @default(cuid())
+  organizationId       String
+  supplierCode         String
+  name                 String
+  category             String
+  contactPerson        String
+  email                String
+  phone                String
+  taxId                String
+  bankName             String
+  bankAccountNo        String
+  approvalStatus       SupplierApprovalStatus @default(PENDING_VERIFICATION)
+  isPreferred          Boolean                @default(false)
+  isBlacklisted        Boolean                @default(false)
+  blacklistReason      String?
+  deliveryScore        Int                    @default(90)
+  qualityRating        Decimal                @default(4.5) @db.Decimal(3, 2)
+  priceCompetitiveness Int                    @default(85)
+  cumulativeSpend      Decimal                @default(0) @db.Decimal(18, 2)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  organization         Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documents            SupplierDocument[]
+  quotations           SupplierQuotation[]
+  contracts            SupplierContract[]
+  purchaseOrders       PurchaseOrder[]
+  purchaseReturns      PurchaseReturn[]
+  supplierInvoices     SupplierInvoice[]
+
+  @@unique([organizationId, supplierCode])
+  @@index([organizationId, approvalStatus])
+}
+
+model SupplierDocument {
+  id         String   @id @default(cuid())
+  supplierId String
+  docType    String
+  fileName   String
+  expiryDate DateTime
+  isVerified Boolean  @default(true)
+  uploadedAt DateTime @default(now())
+
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 6 & 8: REQUEST FOR QUOTATION (RFQ) & WEIGHTED EVALUATION
+// -----------------------------------------------------------------------------
+
+model Rfq {
+  id                     String              @id @default(cuid())
+  organizationId         String
+  rfqNumber              String
+  requisitionId          String
+  title                  String
+  procurementMethod      ProcurementMethod   @default(RFQ)
+  submissionDeadline     DateTime
+  status                 RfqStatus           @default(DRAFT)
+  selectedSupplierId     String?
+  selectionJustification String?
+  cheapestOverrideReason String?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  organization           Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requisition            PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Restrict)
+  quotations             SupplierQuotation[]
+  clarifications         RfqClarification[]
+
+  @@unique([organizationId, rfqNumber])
+  @@index([organizationId, status])
+}
+
+model RfqClarification {
+  id           String    @id @default(cuid())
+  rfqId        String
+  supplierName String
+  question     String
+  response     String?
+  askedAt      DateTime  @default(now())
+  respondedAt  DateTime?
+
+  rfq          Rfq       @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+}
+
+model SupplierQuotation {
+  id             String   @id @default(cuid())
+  rfqId          String
+  supplierId     String
+  quotedAmount   Decimal  @db.Decimal(18, 2)
+  currency       String   @default("KES")
+  leadTimeDays   Int
+  validityDays   Int      @default(30)
+  technicalNotes String?
+  weightedScore  Decimal  @default(0) @db.Decimal(5, 2)
+  isSelected     Boolean  @default(false)
+  submittedAt    DateTime @default(now())
+
+  rfq            Rfq      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier       Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 10: OPERATIONAL CONTRACT MANAGEMENT
+// -----------------------------------------------------------------------------
+
+model SupplierContract {
+  id                String            @id @default(cuid())
+  organizationId    String
+  contractNumber    String
+  title             String
+  supplierId        String
+  departmentId      String
+  ownerName         String
+  procurementMethod ProcurementMethod @default(FRAMEWORK_AGREEMENT)
+  startDate         DateTime
+  endDate           DateTime
+  renewalNoticeDays Int               @default(60)
+  ceilingValue      Decimal           @db.Decimal(18, 2)
+  utilizedSpend     Decimal           @default(0) @db.Decimal(18, 2)
+  currency          String            @default("KES")
+  status            ContractStatus    @default(ACTIVE)
+  versionNumber     Int               @default(1)
+  documentFileName  String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier          Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  department        Department          @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  amendments        ContractAmendment[]
+  purchaseOrders    PurchaseOrder[]
+
+  @@unique([organizationId, contractNumber])
+  @@index([organizationId, status])
+}
+
+model ContractAmendment {
+  id               String           @id @default(cuid())
+  contractId       String
+  versionNumber    Int
+  amendmentSummary String
+  previousCeiling  Decimal          @db.Decimal(18, 2)
+  newCeiling       Decimal          @db.Decimal(18, 2)
+  newEndDate       DateTime
+  amendedBy        String
+  amendedAt        DateTime         @default(now())
+
+  contract         SupplierContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 11 & 12: PURCHASE ORDER (PO) & SUPPLIER PORTAL ACKNOWLEDGMENT
+// -----------------------------------------------------------------------------
+
+model PurchaseOrder {
+  id                      String              @id @default(cuid())
+  organizationId          String
+  poNumber                String
+  title                   String
+  supplierId              String
+  departmentId            String
+  rfqNumber               String?
+  prNumber                String?
+  contractId              String?
+  currency                String              @default("KES")
+  totalAmount             Decimal             @db.Decimal(18, 2)
+  expectedDeliveryDate    DateTime
+  confirmedDeliveryDate   DateTime?
+  supplierAckNote         String?
+  status                  PurchaseOrderStatus @default(DRAFT)
+  versionNumber           Int                 @default(1)
+  allowSplitDelivery      Boolean             @default(true)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  organization            Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier                Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  department              Department          @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  contract                SupplierContract?   @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  items                   PurchaseOrderItem[]
+  goodsReceipts           GoodsReceiptNote[]
+  purchaseReturns         PurchaseReturn[]
+  supplierInvoices        SupplierInvoice[]
+
+  @@unique([organizationId, poNumber])
+  @@index([organizationId, status])
+}
+
+model PurchaseOrderItem {
+  id                String        @id @default(cuid())
+  purchaseOrderId   String
+  sku               String
+  description       String
+  orderedQty        Decimal       @db.Decimal(18, 2)
+  receivedQty       Decimal       @default(0) @db.Decimal(18, 2)
+  unitOfMeasure     String        @default("EA")
+  unitPrice         Decimal       @db.Decimal(18, 2)
+  totalPrice        Decimal       @db.Decimal(18, 2)
+
+  purchaseOrder     PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 13: GOODS RECEIPT NOTE (GRN)
+// -----------------------------------------------------------------------------
+
+model GoodsReceiptNote {
+  id                  String             @id @default(cuid())
+  organizationId      String
+  grnNumber           String
+  purchaseOrderId     String
+  receivedBy          String
+  deliveryNoteRef     String
+  receivedAt          DateTime           @default(now())
+  status              GrnStatus          @default(PENDING)
+  hasDiscrepancy      Boolean            @default(false)
+  discrepancySummary  String?
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseOrder       PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  items               GoodsReceiptItem[]
+  purchaseReturns     PurchaseReturn[]
+  supplierInvoices    SupplierInvoice[]
+
+  @@unique([organizationId, grnNumber])
+  @@index([organizationId, purchaseOrderId])
+}
+
+model GoodsReceiptItem {
+  id               String           @id @default(cuid())
+  grnId            String
+  sku              String
+  description      String
+  orderedQty       Decimal          @db.Decimal(18, 2)
+  receivedQty      Decimal          @db.Decimal(18, 2)
+  rejectedQty      Decimal          @default(0) @db.Decimal(18, 2)
+  unitOfMeasure    String           @default("EA")
+  conditionStatus  String           @default("GOOD") // GOOD | SHORTAGE | DAMAGED | SUBSTITUTED
+  discrepancyNote  String?
+
+  grn              GoodsReceiptNote @relation(fields: [grnId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 14: PURCHASE RETURNS & REJECTIONS
+// -----------------------------------------------------------------------------
+
+model PurchaseReturn {
+  id                String               @id @default(cuid())
+  organizationId    String
+  returnNumber      String
+  grnId             String
+  purchaseOrderId   String
+  supplierId        String
+  sku               String
+  description       String
+  unitOfMeasure     String               @default("EA")
+  returnedQty       Decimal              @db.Decimal(18, 2)
+  unitPrice         Decimal              @db.Decimal(18, 2)
+  returnAmount      Decimal              @db.Decimal(18, 2)
+  reasonCode        String               // DAMAGED | WRONG_SPECIFICATION | EXPIRED_SHORT_DATED | QUALITY_DEFECT
+  reasonNotes       String
+  resolutionType    ReturnResolutionType @default(CREDIT_NOTE_ADJUSTMENT)
+  creditNoteNumber  String?
+  status            PurchaseReturnStatus @default(RAISED)
+  budgetReleased    Boolean              @default(false)
+  raisedBy          String
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  grn               GoodsReceiptNote     @relation(fields: [grnId], references: [id], onDelete: Restrict)
+  purchaseOrder     PurchaseOrder        @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  supplier          Supplier             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, returnNumber])
+  @@index([organizationId, status])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 15: SUPPLIER INVOICES, 3-WAY MATCHING & PAYMENTS
+// -----------------------------------------------------------------------------
+
+model SupplierInvoice {
+  id                      String              @id @default(cuid())
+  organizationId          String
+  invoiceNumber           String
+  internalVoucherNo       String
+  purchaseOrderId         String
+  grnId                   String
+  supplierId              String
+  invoiceDate             DateTime
+  dueDate                 DateTime
+  currency                String              @default("KES")
+  sku                     String
+  description             String
+  invoicedQty             Decimal             @db.Decimal(18, 2)
+  invoicedUnitPrice       Decimal             @db.Decimal(18, 2)
+  poOrderedQty            Decimal             @db.Decimal(18, 2)
+  poUnitPrice             Decimal             @db.Decimal(18, 2)
+  grnAcceptedQty          Decimal             @db.Decimal(18, 2)
+  subtotalAmount          Decimal             @db.Decimal(18, 2)
+  taxAmount               Decimal             @default(0) @db.Decimal(18, 2)
+  creditNoteDeduction     Decimal             @default(0) @db.Decimal(18, 2)
+  netPayableAmount        Decimal             @db.Decimal(18, 2)
+  amountPaid              Decimal             @default(0) @db.Decimal(18, 2)
+  balanceDue              Decimal             @db.Decimal(18, 2)
+  threeWayMatchStatus     ThreeWayMatchStatus @default(MATCHED)
+  exceptionResolutionNote String?
+  exceptionResolvedBy     String?
+  status                  InvoiceStatus       @default(PENDING_MATCH)
+  scheduledPaymentDate    DateTime?
+  financeSignedOffBy      String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  organization            Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseOrder           PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  grn                     GoodsReceiptNote    @relation(fields: [grnId], references: [id], onDelete: Restrict)
+  supplier                Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  payments                InvoicePayment[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId, status])
+}
+
+model InvoicePayment {
+  id               String          @id @default(cuid())
+  invoiceId        String
+  paymentReference String
+  paymentMethod    String          // EFT_RTGS | SWIFT_WIRE | MPESA_B2B | CHEQUE
+  amountPaid       Decimal         @db.Decimal(18, 2)
+  paidBy           String
+  paidAt           DateTime        @default(now())
+
+  invoice          SupplierInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 16: BRANDED DOCUMENT & PDF TEMPLATE ENGINE
+// -----------------------------------------------------------------------------
+
+model DocumentTemplate {
+  id                        String       @id @default(cuid())
+  organizationId            String
+  templateCode              String
+  docType                   String       // PURCHASE_REQUISITION | REQUEST_FOR_QUOTATION | QUOTATION_EVALUATION_REPORT | AWARD_LETTER | PURCHASE_ORDER | GOODS_RECEIPT_NOTE | PURCHASE_RETURN_NOTE | SUPPLIER_EVALUATION_REPORT | PROCUREMENT_EXECUTIVE_REPORT
+  title                     String
+  versionNumber             Int          @default(1)
+  includeLogo               Boolean      @default(true)
+  includeSignatureBlocks    Boolean      @default(true)
+  includeTermsAndConditions Boolean      @default(true)
+  customFooterText          String
+  updatedBy                 String
+  updatedAt                 DateTime     @updatedAt
+
+  organization              Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, templateCode])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 19: NOTIFICATIONS, ESCALATIONS & SCHEDULED ALERTS
+// -----------------------------------------------------------------------------
+
+model ProcurementAlert {
+  id             String       @id @default(cuid())
+  organizationId String
+  alertType      String       // PENDING_APPROVAL_ESCALATION | OVERDUE_PO_DELIVERY | BUDGET_THRESHOLD_WARNING | RFQ_DEADLINE_CLOSING_48H | CONTRACT_RENEWAL_REMINDER | EXPIRING_SUPPLIER_CERTIFICATE | INVOICE_3WAY_MISMATCH | PURCHASE_RETURN_UPDATE | NEW_SUPPLIER_QUOTE
+  severity       String       // CRITICAL | WARNING | INFO
+  title          String
+  description    String
+  referenceNo    String
+  targetHref     String
+  channels       String       @default("IN_APP, EMAIL")
+  status         String       @default("ACTIVE") // ACTIVE | ACKNOWLEDGED
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 21: ENTERPRISE INTEGRATIONS (ACCOUNTING, ERP, SSO, STORAGE, MESSAGING)
+// -----------------------------------------------------------------------------
+
+model EnterpriseIntegration {
+  id             String       @id @default(cuid())
+  organizationId String
+  category       String       // ACCOUNTING | ERP | SSO | STORAGE | EMAIL | MESSAGING
+  providerName   String       // QuickBooks Online | Xero | Sage | SAP / Odoo | Google / Microsoft 365 | AWS S3 | Twilio & WhatsApp
+  status         String       @default("CONNECTED") // CONNECTED | DISCONNECTED | SANDBOX
+  endpointOrOrg  String
+  syncFrequency  String       @default("REALTIME_WEBHOOK")
+  lastSyncedAt   DateTime?
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, category])
+}
+
+model IntegrationSyncLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  providerName   String
+  eventType      String       // INVOICE_3WAY_SYNC | PAYMENT_VOUCHER_SYNC | WHATSAPP_APPROVAL_ALERT | ERP_GRN_SYNC
+  referenceNo    String
+  status         String       @default("SUCCESS")
+  payloadSummary String
+  syncedAt       DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, syncedAt])
+}
+
+// -----------------------------------------------------------------------------
+// MODULE 2 & 20: IMMUTABLE AUDIT TRAIL
+// -----------------------------------------------------------------------------
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  actorId        String?
+  action         String
+  entityType     String
+  entityId       String
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, createdAt])
+}
